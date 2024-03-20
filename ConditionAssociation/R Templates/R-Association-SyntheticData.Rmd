@@ -1,0 +1,650 @@
+------------------------------------------------------------------------
+
+# 🅡 Example Condition Association Template
+
+------------------------------------------------------------------------
+
+# Introduction 👋
+
+**Welcome to the Condition Association Code Template tailored for the All of Us (AoU) data!** Our goal is to guide you through analyzing the relationship between two conditions using AoU data. This template offers a comprehensive pathway and code samples to simplify your analysis. It's designed for both beginners and experienced analysts. Please follow the [**AoU Condition Association Code Template Instructions**](https://drive.google.com/file/d/1gjwjX3Vq6GVTUkpQM_4PanhTBQScL8Fp/view?usp=sharing) to build your cohorts and data frames for this template. This is the only way to guarantee consistent results.
+
+**To upload these templates to a workspace in the All of Us Researcher Workbench, please [follow these instructions](https://support.researchallofus.org/hc/en-us/articles/360042684051-Are-external-coding-files-able-to-be-imported-for-analysis-)**
+
+**Note: Each section contains important information. Please read them carefully!**
+
+## Learning Objectives:
+
+-   Set up R in Jupyter and load required libraries and packages.
+
+-   Load and prepare dataframes for analysis.
+
+-   Produce a data summary table.
+
+-   Create and interpret visualizations, such as bar charts and density plots.
+
+-   Conduct and interpret various tests and regressions:
+
+    -   Use the Chi-square test for categorical data.
+
+    -   Apply the ANOVA for comparing means.
+
+    -   Perform unadjusted logistic regression for binary outcomes with one predictor.
+
+    -   Run adjusted logistic regression with multiple predictors.
+
+    -   Draw conclusions from your analysis, considering the implications and limitations.
+
+------------------------------------------------------------------------
+
+# Import Libraries 📚
+
+The code below installs and imports all of the packages needed for this analysis.
+
+**Automatically Imported by All of Us**: `tidyverse`, `bigrquery`
+
+**Require Manual Import**: `arsenal`, `IRdisplay`, `forestplot`, `car`, `lmtest`
+
+**Note: Packages are auto-imported only when using the DatasetBuilder to export dataframes. Without the DatasetBuilder, no packages are imported automatically.**
+
+```{r}
+# Package names
+packages <- c("tidyverse", "IRdisplay", "arsenal", "car", "lmtest", "forestplot")
+
+# Install packages not yet installed
+installed_packages <- packages %in% rownames(installed.packages())
+if (any(installed_packages == FALSE)) {
+  install.packages(packages[!installed_packages])
+}
+
+# Packages loading
+suppressPackageStartupMessages(invisible(lapply(packages, library, character.only = TRUE)))
+```
+
+------------------------------------------------------------------------
+
+# Import Data 🗃️
+
+This section simulates the process of importing All of Us datasets. In the AoU Researcher Workbench, data is imported using the DatasetBuilder which builds the SQL code and exports it to your Jupyter Notebook. For this synthetic data, we will use RData files to import our datasets. When you are actually in the Researcher Workbench and using the R kernel with the DatasetBuilder, expect there to be two code cells generated for each dataset. For the three datasets you need in this analysis, expect a total of six code cells.
+
+**Note: The real AoU data frames will be imported to the bottom of the code template. You need to move them up to this section!**
+
+**How to do this:** Select the first imported cell, it will highlight blue. While holding down `Shift`, scroll to the last imported cell and click on it. All six cells should highlight blue. Hit the up arrow ⬆ in the toolbar and move the cells to this section. You can keep track of this in the Table of Contents by watching the yellow box move from section to section. Once it reaches the correct section **(3. Import Data)**, you can stop moving the cells. Don't forget to rename the datasets in Section 4!
+
+```{r}
+load("ADCase.RData") #dataset_12345678_person_df is now loaded in
+load("ADControl.RData") #dataset_23456789_person_df is now loaded in
+load("CSCase.RData") #dataset_34567890_person_df is now loaded in
+```
+
+------------------------------------------------------------------------
+
+# Relabel Data Frames 🏷️
+
+In this section, you'll be renaming the AoU data frames. When datasets are imported into the notebook using the DatasetBuilder, they're named in the format: `dataset_12345678_domain_df`. The domain corresponds to the type of concept set linked to your cohort (i.e person corresponds to the **Demographics** prepackaged concept set).
+
+```{r}
+# Rename data frames
+case_df <- dataset_12345678_person_df
+
+control_df <- dataset_23456789_person_df
+
+condition_df <- dataset_34567890_person_df
+
+# The outcome condition used to build case and control cohorts
+condition_1_name = "Atopic Dermatitis"
+# The predictor condition used to build condition cohort
+condition_2_name = "Chronic Sinusitis"
+```
+
+Inspect the first 6 rows of the `case_df` and determine its dimensions.
+
+To examine other dataframes, replace `case_df` with the desired dataframe name, such as `control_df` or `condition_df`.
+
+```{r}
+# Examine dfs
+head(case_df)
+dim(case_df)
+```
+
+------------------------------------------------------------------------
+
+# Creating a Column for the Outcome 🖋️
+
+In this guide, condition 1 is treated as the `outcome` and used to define your case and control cohorts. Both `case_df` and `control_df` are constructed based on the presence or absence of the outcome. Since we'll be merging these dataframes later, it's crucial to introduce a new column distinguishing between cases and controls. This new column, termed `outcome`, will be assigned a value of `1` for the case group and `0` for the control group.
+
+> Conditions are determined by their presence or absence in participant Electronic Health Records. If EHR data is unavailable or lacks records of a condition, it's presumed the participant does not have it. Keep this in mind when interpreting results!
+
+```{r}
+# Assign all cases with the value 1 in a new column called 'outcome'
+case_df$outcome <- 1
+
+# Assign all controls with the value 0 to same column
+control_df$outcome <- 0
+```
+
+------------------------------------------------------------------------
+
+# Creating a Column for the Predictor 🖋️
+
+In this guide, condition 2 is viewed as the `predictor` and used to define your condition cohort. We'll establish a new column within the `condition_df` dataframe to represent the this value. This new column, named `predictor`, will assign a value of `1` to each entry.
+
+> Conditions are determined by their presence or absence in participant Electronic Health Records. If EHR data is unavailable or lacks records of a condition, it's presumed the participant does not have it. Keep this in mind when interpreting results!
+
+```{r}
+# Assign 1 to all persons in a new column called 'predictor'
+condition_df$predictor <- 1
+
+dim(condition_df)
+head(condition_df)
+```
+
+------------------------------------------------------------------------
+
+# Join the Data Frames 🔗
+
+1)  **Full Join:** This process appends the rows from `case_df` to `control_df` for all columns (they should have same column names).
+
+2)  **Left Join:** For each `person_id` in `merged_df`, a value of `1` is assigned to the `predictor` column if the ID exists in `condition_df`. Otherwise, the `predictor` column value is set to `NA`.
+
+```{r}
+# Full join the case and control dfs
+merged_df <- case_df %>% full_join(control_df)
+
+# Left join the condition_df
+merged_df <- merged_df %>% 
+            left_join(condition_df, by="person_id")
+```
+
+------------------------------------------------------------------------
+
+# Replace NAs 🔄
+
+Ensure that you fill in the `NA` values with `0`!
+
+The only column that should have `NA` values is the `predictor` column. If this is not the case, there was an **error with importing your dataset**.
+
+```{r}
+# This takes the NA values created from the left join and makes them the value '0'
+merged_df[is.na(merged_df)] <- 0
+```
+
+------------------------------------------------------------------------
+
+# Factor the Categorical Variables 🔡
+
+Currently, our `outcome` and `predictor` columns contain integer values. For accurate modeling, it's crucial to transform these integers into categorical variables, or factors. Neglecting this step would result in treating our categorical variable as a continuous one, implying a linear relationship with the `outcome` — a misconception that could lead to errors during logistic regression.
+
+Utilizing the `factor()` function allows us to designate the levels (0 and 1) with more descriptive labels such as **Atopic Dermatitis Controls** and **Atopic Dermatitis Cases**, enhancing clarity and ensuring proper model interpretation.
+
+```{r}
+# Factor and relabel the levels for outcome and predictor
+merged_df$outcome <- factor(merged_df$outcome, 
+                            levels = c(0, 1), 
+                            labels = c(paste(condition_1_name, "Controls"),
+                                       paste(condition_1_name, "Cases")))
+merged_df$predictor <- factor(merged_df$predictor, 
+                             levels = c(0, 1), 
+                             labels = c(paste("No", condition_2_name), condition_2_name))
+
+```
+
+Our demographic variables, namely `sex_at_birth`, `race`, and `ethnicity`, consist of character values. Even though the logistic regression would inherently transform these into factors, proactively handling this conversion is advisable. By doing so, we can review and, if needed, reset the reference level. This foresight facilitates a clearer interpretation of odds ratios later in our analysis.
+
+```{r}
+# Factor the demographic variables
+merged_df$sex_at_birth <- factor(merged_df$sex_at_birth)
+merged_df$race <- factor(merged_df$race)
+merged_df$ethnicity <- factor(merged_df$ethnicity)
+```
+
+```{r}
+# Check levels..change variable name 'race' to check other demographics
+levels(merged_df$race)
+```
+
+```{r}
+# Reset the race reference level to 'White'
+merged_df$race <- relevel(merged_df$race, ref="White")
+levels(merged_df$race)
+```
+
+# Calculate Age 📅
+
+The code below computes an integer `age` variable using today's date. It then bins `age` and creates a categorical `age_group` variable.
+
+To compute the age at the time of primary consent, refer to the [User Support Hub](https://support.researchallofus.org/hc/en-us/articles/13176125767188-How-to-find-participant-enrollment-data). The link provides the necessary SQL code to fetch the `person_id` alongside the corresponding `primary_consent_date` for all participants in the All of Us database. For accurate age calculation, replace `today` with an appropriate variable name and substitute `Sys.Date()` with the provided SQL code.
+
+```{r}
+# Get today's date
+today = Sys.Date()
+```
+
+```{r}
+# Convert the character string to a date object by stripping the time portion
+# sub(" .*", "") is saying any character after the space should be deleted from the string
+birthdate <- as.Date(sub(" .*", "", merged_df$date_of_birth))
+
+# Calculate age in years
+age <- as.integer(difftime(today, birthdate, units = "days") / 365.25)
+
+# Assign a new column called 'age' in merged_df
+merged_df$age <- age
+
+# Create age groups
+merged_df$age_group <- cut(merged_df$age,
+                    breaks=c(18, 29, 39, 49, 59, 69, 79, Inf), 
+                    labels=c('18-29', '30-39', '40-49', '50-59', '60-69', '70-79', '80+'))
+
+merged_df$age_group <- droplevels(merged_df$age_group)
+```
+
+------------------------------------------------------------------------
+
+# Explore Cleaned Data 🔍
+
+Inspect the first 6 rows of `merged_df` and review its dimensions to understand the structure of the cleaned dataset.
+
+```{r}
+head(merged_df)
+dim(merged_df)
+```
+
+## Numerical Summary 🧮
+
+The code generates a table summarizing counts for categorical variables and means for quantitative variables, grouped by the binary outcome. It evaluates statistical significance using chi-square tests for counts and one-way ANOVA for means.
+
+> PLEASE REVIEW THE [ASSUMPTIONS OF THESE TESTS](https://pitt-my.sharepoint.com/:b:/g/personal/alc244_pitt_edu/EYnZiMKc_4FAiov_ikL6bBwB0AN55QD28xMX2YlwbGDEeQ?e=vAntQw)!
+>
+> The p-value threshold is **set to 0.05** for the tests below. When interpreting p-values, especially for large sample sizes, it's important to keep in mind the following points:
+>
+> -   **Sensitivity to Large Sample Sizes:** In large datasets, the statistical power is so high that even negligible differences can produce statistically significant results, potentially overstating the importance of the findings.
+>
+> -   **Statistical vs. Practical Significance:** A small p-value indicates statistical significance but doesn't assess the practical relevance of the findings; it's essential to also consider the magnitude and implications of the effect size.
+>
+> -   **Multiple Comparisons Issue:** Conducting multiple statistical tests increases the likelihood of encountering significant results by chance; in such cases, adjusting p-values or applying stricter significance criteria can help mitigate false discoveries.
+
+```{r, results = `asis`}
+# Initiate table and tests
+mycontrol<-tableby.control(
+  test = T,
+  total = F,
+  numeric.test = "anova", cat.test = "chisq",
+  numeric.stats = c("meansd"),
+  cat.stats = c("countpct"),
+  stats.labels = list(
+    meansd = "Mean (SD)"
+  )
+)
+
+# Assign labels to variables to be used in table
+my_labels <- list(
+  sex_at_birth = "Sex",
+  race = "Race",
+  ethnicity = "Ethnicity",
+  age = "Age",
+  predictor = condition_2_name,
+  outcome = condition_1_name
+)
+
+# Label the reference levels
+append_ref_to_label <- function(data, exclude_var) {
+  for (var in setdiff(names(data)[sapply(data, is.factor)], exclude_var)) {
+    levels(data[[var]]) <- ifelse(levels(data[[var]]) == levels(data[[var]])[1], 
+                                  paste0(levels(data[[var]]), " (reference)"), 
+                                  levels(data[[var]]))
+  }
+  return(data)
+}
+
+labelled_df <- append_ref_to_label(merged_df, exclude_var = "outcome")
+
+# Specify variables to be used in table
+table_two <- tableby(outcome~age + sex_at_birth + race + ethnicity + predictor,
+  data = labelled_df,
+  control = mycontrol
+)
+
+
+# Capture the printed output of the summary object as a character vector
+table_output <- capture.output(
+  print(
+    summary(table_two,
+      labelTranslations = my_labels,
+      title = "Summary Statistics of Data"
+    )
+  )
+)
+
+# table output
+
+```
+
+### Equality of Variance Test
+
+**Equality of variance** is an assumption for the one-way ANOVA. **Levene's test** is ran below for `age`, a quantitative variable to compares the spread (or variance) of `age` between the case and control groups.
+
+```{r}
+# Test for equality of variance 
+leveneTest(age ~ outcome, data=merged_df)
+```
+
+## Graphical Summaries 📊
+
+### Density/Histogram Plot
+
+This provides a density/histogram plot of `age` in the case and control groups. For this template, `age` is the only numeric value.
+
+```{r}
+# Set the figure size parameters to make the plot smaller
+options(
+  repr.plot.width = 12,   # Width in inches
+  repr.plot.height = 6  # Height in inches
+)
+```
+
+```{r}
+# Initialize density plot with histogram overlay
+ggplot(data = merged_df, aes(x = age, fill = outcome)) +
+  scale_fill_manual(values = c("purple", "darkseagreen"), name = "Outcome") +
+  facet_wrap(~outcome) +
+  geom_histogram(aes(y = after_stat(density)), binwidth = 5, colour = "black", fill = "white") +
+  geom_density(alpha = 0.5) +
+  labs(x = "Age", y = "Density", title = "Distribution of Age By Case/Control") +
+  theme_minimal() 
+
+
+```
+
+### Bar Plot
+
+This provides a bar plot of categorical values in the case and control groups. Replace the value assigned to `categorical_variable` with the column name you would like to observe (i.e. "sex_at_birth"). Also, replace the name for `label` with the name you would like to display for the column in the graph (i.e. "Sex")
+
+```{r}
+# Specify the column name for the categorical variable
+categorical_variable <- "sex_at_birth"
+label <- "Sex"
+
+# Set the figure size (width and height) in inches
+options(
+  repr.plot.width = 10,   # Width in inches
+  repr.plot.height = 7  # Height in inches
+)
+```
+
+```{r}
+# Calculating percentage for bar plot
+outcome_barplot <- merged_df %>%
+  group_by(!!sym(categorical_variable), outcome) %>%
+  summarise(n = n()) %>%
+  group_by(outcome) %>%
+  mutate(perc = 100 * n / sum(n))
+
+# Initialize bar plot using the specified categorical variable
+ggplot(outcome_barplot, aes(x = !!sym(categorical_variable), y = perc / 100, fill = !!sym(categorical_variable))) +
+# Using Brewer colors
+scale_fill_brewer(palette = "Set3", name = label) +
+  geom_bar(stat = "identity") +
+# Replace xlab with label
+  xlab(label) + ylab("Proportion") +
+# Replace ggtitle with label
+  ggtitle(paste("Proportion of", label,  "for Case/Control Groups")) +
+  facet_wrap(~outcome) +
+  geom_text(aes(label = sprintf("%.02f %%", perc), vjust = 1.5, hjust = 0.41)) +
+  theme_bw()
+
+```
+
+------------------------------------------------------------------------
+
+# Statistical Analysis 📈🧐
+
+**You have the option to run all the tests listed below, or simply select the specific one you need and execute the cells below it.**
+
+## Unadjusted Logistic Regression
+
+Welcome to the section on **Unadjusted Logistic Regression**. This statistical method, also known as "simple" or "bivariate" logistic regression, serves as a foundational approach to understand the relationship between a binary response variable and a single predictor.
+
+Here are some key components to grasp:
+
+-   **Response Variable:** At its core, this method requires a binary outcome. Think of results like Yes/No, 1/0, or Success/Failure.
+
+-   **Predictor Variable:** This can be either categorical, such as gender, or continuous like age. For instance, one might be investigating the effect of race on the odds of developing a certain disease.
+
+-   **Odds Ratio (OR):** A crucial metric in logistic regression. For a categorical predictor, the odds ratio compares the odds of the outcome between different levels of the predictor relative to a reference category, rather than indicating the change in odds for a one-unit increase.
+
+Dive in, explore, and use this method to draw meaningful conclusions from your data.
+
+> PLEASE REVIEW THE [ASSUMPTIONS OF THIS TEST](https://pitt-my.sharepoint.com/:w:/g/personal/alc244_pitt_edu/EWC4vBJfBL5FnMK4FS1A1z8BR12P0bqwv8Ge5K_NAORWoA?e=tjtxuM)!
+>
+> The p-value threshold is **set to 0.05** for the tests below. When interpreting p-values, especially for large sample sizes, it's important to keep in mind the following points:
+>
+> -   **Sensitivity to Large Sample Sizes:** In large datasets, the statistical power is so high that even negligible differences can produce statistically significant results, potentially overstating the importance of the findings.
+>
+> -   **Statistical vs. Practical Significance:** A small p-value indicates statistical significance but doesn't assess the practical relevance of the findings; it's essential to also consider the magnitude and implications of the effect size.
+>
+> -   **Multiple Comparisons Issue:** Conducting multiple statistical tests increases the likelihood of encountering significant results by chance; in such cases, adjusting p-values or applying stricter significance criteria can help mitigate false discoveries.
+
+```{r}
+# Here, we do a logistic regression without adjusting for covariates.
+unadj_reg <- glm(outcome ~ predictor, family = binomial(link = "logit"), data = merged_df)
+summary(unadj_reg)
+```
+
+> **Interpreting the Logistic Regression Output:**
+>
+> -   **Model:** The outcome is being predicted by the variable `predictor` in a binary logistic regression using the given dataset.
+>
+> -   **Deviance Residuals:** These provide a measure of model fit. A perfect model would have residuals close to 0.
+>
+> -   **Coefficients:**
+>
+>     -   `(Intercept)`: The Estimate represents the log odds of the outcome when `predictor` is 0. This remains typically not directly interpretable unless the data is centered or if a predictor value of 0 has a meaningful interpretation in the study's context.
+>     -   `predictorcondition_1_name`: The Estimate is the increase/decrease in the log odds for those with the `predictor` condition.
+>
+> -   **Standard Error:** The standard error in logistic regression measures the variability of estimated coefficients from the model's true coefficients.
+>
+> -   **z value:** The z-value; this is the standardized estimate divided by its standard error.
+>
+> -   **Null deviance:** Indicates goodness of fit of a model with no predictors, with lower values indicating better fit.
+>
+> -   **Residual deviance:** Indicates goodness of fit of the model, with lower values suggesting better fit.
+>
+> -   **AIC (Akaike Information Criterion):** Used to compare logistic regression models. Lower AIC values suggest better fitting models, but it's mostly used for model comparison purposes.
+
+### Odds Ratio and Confidence Interval
+
+**Interpreting the Unadjusted Logistic Regression Results:**
+
+**Chronic Sinusitis:** Those with the `predictor` Chronic Sinusitis have a 157% [130%-188%] increase in the odds of having the `outcome` Atopic Dermatitis when compared to individuals without the `predictor` Chronic Sinusitis.
+
+**Note: Confidence intervals that span over 1 suggest the result isn't statistically significant at the standard 0.05 level.**
+
+```{r}
+unadj_or <- exp(coef(unadj_reg))
+unadj_ci <- exp(confint.default(unadj_reg))
+
+tibble(
+  Predictor = names(unadj_or),
+  OR = unadj_or,
+  "2.5%" = unadj_ci[, 1],
+  "97.5" = unadj_ci[, 2]
+)
+```
+
+## Adjusted Logistic Regression
+
+Building on the previous unadjusted analysis, the **Adjusted Logistic Regression** now incorporates multiple predictors, allowing us to control for potential confounders. This updated approach includes additional variables like `sex`, `age_group`, `race`, and `ethnicity`.
+
+**Key Points:**
+
+-   **Multiple Predictor Variables:** By integrating several predictors, both categorical and continuous, this adjusted analysis enables more in-depth insights, like the combined influence of age with other demographics.
+
+-   **Odds Ratio (OR):** Essential in adjusted analysis, each OR represents the effect of a predictor while holding other variables constant. OR values inform whether a predictor increases, decreases, or has no effect on the likelihood of the outcome.
+
+```{r}
+# Here, we do a logistic regression adjusting for race, ethnicity, age, and sex at birth.
+adj_reg <- glm(outcome ~ predictor + ethnicity + age_group + sex_at_birth + race, 
+                 family = binomial(link = "logit"), data = merged_df)
+adj_reg_sum <- summary(adj_reg)
+
+adj_reg_sum
+```
+
+### Likelihood Ratio Test
+
+For multi-category variables like `age_group` and `race`, it's crucial to assess the overall significance of the entire variable, not just individual categories, in determining its relevance to the regression model. A likelihood ratio test is used to compare the fit of your full model (including the variable of interest) against a reduced model (excluding the variable of interest) to see if there's a significant reduction in fit without that variable.
+
+```{r}
+no_age <- glm(outcome ~ predictor + ethnicity + sex_at_birth + race, 
+                 family = binomial(link = "logit"), data = merged_df)
+
+no_race <- glm(outcome ~ predictor + ethnicity + sex_at_birth + age_group, 
+                 family = binomial(link = "logit"), data = merged_df)
+
+lrtest(adj_reg, no_age)
+lrtest(adj_reg, no_race)
+```
+
+> **Interpreting the Likelihood Ratio Test (lrtest) output:**
+>
+> -   **#Degrees of Freedom:** This column shows the number of parameters estimated by the models. The first row corresponds to the more complex model (full model), and the second row corresponds to the simpler model (reduced model).
+>
+> -   **Log-Likelihood:** This column provides the log-likelihood of each model. The log-likelihood is a measure of model fit, with higher values (closer to zero) indicating a better fit.
+>
+> -   **Degree of Freedom:** This value represents the difference in the number of parameters between the full and reduced models
+>
+> -   **Chi-Squared Value:** The test statistic for the likelihood ratio test, calculated from the difference in log-likelihoods between the two models. A higher chi-squared value indicates a greater difference in fit between the two models.
+>
+> -   **P-value:** Represents the probability of observing the data, or more extreme results, assuming that the null hypothesis is true.
+
+### Odds Ratio and Confidence Interval
+
+**Interpreting the Adjusted Logistic Regression Results:**
+
+**Chronic Sinusitis:** Those with the `predictor` Chronic Sinusitis have 153% [126%-184%] increase in the odds of having the `outcome` Atopic Dermatitis compared to those without Chronic Sinusitis while holding `ethnicity`, `age`, `race`, and `sex` constant.
+
+**Note: Confidence intervals traversing the value of 1 imply non-significance at the conventional 0.05 level.**
+
+```{r}
+adj_or <- exp(coef(adj_reg))
+adj_ci <- exp(confint.default(adj_reg))
+
+
+tibble(
+  Predictor = names(adj_or),
+  OR = adj_or,
+  "2.5%" = adj_ci[, 1],
+  "97.5%" = adj_ci[, 2]
+)
+```
+
+### Summary of Logistic Regressions
+
+This is the final table for the logistic regressions. It shows the unadjusted and adjusted odds ratio for the `predictor` in your analysis.
+
+```{r}
+tibble(
+  'Predictor' = condition_2_name,
+  'Unadjusted OR (95% CI)' = sprintf("%.2f (%.2f - %.2f)", unadj_or[2], unadj_ci[2, 1], unadj_ci[2, 2]),
+  'Adjusted OR (95% CI)' = sprintf("%.2f (%.2f - %.2f)", adj_or[2], adj_ci[2, 1], adj_ci[2, 2]),
+)
+```
+
+### Forest Plot
+
+This forest plot displays the adjusted ORs for all categorical variables in the analysis.
+
+```{r}
+# Set the figure size (width and height) in inches
+options(
+  repr.plot.width = 12,   # Width 
+  repr.plot.height = 9  # Height 
+)
+```
+
+```{r}
+forest_table <- tibble(
+  mean = adj_or,
+  lower = adj_ci[, 1],
+  upper = adj_ci[, 2],
+  Predictor = str_extract(names(adj_or), pattern="[A-Z0-9].*"),
+  OR = sprintf("%.2f", adj_or),
+  CI = paste(sprintf("%.2f", adj_ci[,1]), "-", sprintf("%.2f", adj_ci[,2]))  
+)
+forest_table <- forest_table %>% slice(-1) # get rid of intercept OR
+```
+
+```{r}
+forest_table %>%
+  forestplot(labeltext = c(Predictor, OR, CI),
+             clip = c(0.001, 10),
+             vertices = TRUE,
+             xlog=TRUE,
+             xticks = log10(c(.001, 0.1, 1, 10, 100)),
+             title = paste("Forest Plot of Adjusted ORs for", condition_1_name)) %>%
+  fp_set_style(box = "royalblue",
+               line = "darkblue",
+               summary = "royalblue") %>%
+  fp_add_header(Predictor = c("", "Predictor"), 
+                OR = c("","Adjusted OR"), 
+                CI = c("", "95% CI")) %>%
+  fp_set_zebra_style("#EFEFEF")
+```
+
+## Stratified Logistic Regression
+
+If you are interested in targeting a specific group in your cohort based on `sex_at_birth`, `age`, `race`, or `ethnicity`, please use the code snippet below. The `strat_variable` is the column that contains the `strat_group` you would like to look at.
+
+Make sure to adjust your odds ratio interpretation to account for this change.
+
+```{r}
+strat_variable = "sex_at_birth"
+strat_group = "Male"
+```
+
+```{r}
+# Filter the df
+strat_df <- merged_df %>% filter(!!sym(strat_variable) == strat_group)
+
+# Get column names
+all_vars <- names(strat_df)
+
+# Remove the unneeded variables from the list of predictors
+predictor_vars <- setdiff(all_vars, c("outcome", "person_id", "age", "date_of_birth", strat_variable))
+
+# Create the regression formula string
+formula_str <- paste("outcome ~", paste(predictor_vars, collapse = " + "))
+
+# Convert the string to an actual formula
+strat_formula <- as.formula(formula_str)
+```
+
+```{r}
+# Here, we do a logistic regression adjusting for all demographics (except the one being stratified).
+strat_reg <- glm(strat_formula, 
+                 family = binomial(link = "logit"), data = strat_df)
+strat_reg_sum <- summary(strat_reg)
+
+strat_reg_sum
+```
+
+### Odds Ratio and Confidence Interval
+
+**Interpreting the Stratified Logistic Regression Results:**
+
+**Chronic Sinusitis:** Males with the `predictor` Chronic Sinusitis have 137% [98%-184%] increase in the odds of having the `outcome` Atopic Dermatitis compared to males without Chronic Sinusitis while holding `race`, `age`, and `ethnicity` constant.
+
+**Note: Confidence intervals traversing the value of 1 imply non-significance at the conventional 0.05 level.**
+
+```{r}
+strat_or <- exp(coef(strat_reg))
+strat_ci <- exp(confint.default(strat_reg))
+
+
+tibble(
+  Predictor = names(strat_or),
+  OR = strat_or,
+  "2.5%" = strat_ci[, 1],
+  "97.5%" = strat_ci[, 2]
+)
+```
